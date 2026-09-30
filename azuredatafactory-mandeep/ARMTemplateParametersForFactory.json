@@ -1,0 +1,27 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"value": "azuredatafactory-mandeep"
+		},
+		"ADLS_LinkedServer_accountKey": {
+			"value": ""
+		},
+		"AzureSQL_LinkedServer_password": {
+			"value": ""
+		},
+		"ADLS_LinkedServer_properties_typeProperties_url": {
+			"value": "https://mandeepstorageaccount.dfs.core.windows.net/"
+		},
+		"AzureSQL_LinkedServer_properties_typeProperties_server": {
+			"value": "azuresql-server-mandeep.database.windows.net"
+		},
+		"AzureSQL_LinkedServer_properties_typeProperties_database": {
+			"value": "AzureSQL_Mandeep"
+		},
+		"AzureSQL_LinkedServer_properties_typeProperties_userName": {
+			"value": "mandeep3458"
+		}
+	}
+}
