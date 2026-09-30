@@ -1,0 +1,19 @@
+{
+	"name": "DS_AzureSQL_Config",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "AzureSQL_LinkedServer",
+			"type": "LinkedServiceReference"
+		},
+		"folder": {
+			"name": "Project 1 - Data Migration using ADF"
+		},
+		"annotations": [],
+		"type": "AzureSqlTable",
+		"schema": [],
+		"typeProperties": {
+			"schema": "etl",
+			"table": "Pipeline_Config"
+		}
+	}
+}

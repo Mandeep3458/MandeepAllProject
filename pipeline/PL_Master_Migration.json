@@ -1,0 +1,426 @@
+{
+	"name": "PL_Master_Migration",
+	"properties": {
+		"description": "Reads active file configs from etl.Pipeline_Config; for each file: validate -> copy to staging -> validate data -> load final -> log",
+		"activities": [
+			{
+				"name": "Set_Run_Start_Time",
+				"type": "SetVariable",
+				"dependsOn": [],
+				"policy": {
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"variableName": "varRunStartTime",
+					"value": {
+						"value": "@utcnow()",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Lookup_Config",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "Set_Run_Start_Time",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.00:10:00",
+					"retry": 1,
+					"retryIntervalInSeconds": 30
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": "SELECT SourceSystem, SubjectArea, FileSystemName, FolderPath, FileName, StagingSchema, StagingTable, ValidationProc, LoadProc FROM etl.Pipeline_Config WHERE IsActive = 1",
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_AzureSQL_Config",
+						"type": "DatasetReference"
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "ForEach_File",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "Lookup_Config",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('Lookup_Config').output.value",
+						"type": "Expression"
+					},
+					"isSequential": false,
+					"batchCount": 4,
+					"activities": [
+						{
+							"name": "Validate_File_Exists",
+							"type": "Validation",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"dataset": {
+									"referenceName": "DS_ADLS_DelimitedText",
+									"type": "DatasetReference",
+									"parameters": {
+										"fileSystemName": {
+											"value": "@item().FileSystemName",
+											"type": "Expression"
+										},
+										"folderPath": {
+											"value": "@item().FolderPath",
+											"type": "Expression"
+										},
+										"fileName": {
+											"value": "@item().FileName",
+											"type": "Expression"
+										}
+									}
+								},
+								"timeout": "0.00:10:00",
+								"sleep": 30,
+								"minimumSize": 1
+							}
+						},
+						{
+							"name": "Copy_Blob_To_Staging",
+							"type": "Copy",
+							"dependsOn": [
+								{
+									"activity": "Validate_File_Exists",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 2,
+								"retryIntervalInSeconds": 60,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"source": {
+									"type": "DelimitedTextSource",
+									"storeSettings": {
+										"type": "AzureBlobFSReadSettings",
+										"recursive": false
+									},
+									"formatSettings": {
+										"type": "DelimitedTextReadSettings"
+									}
+								},
+								"sink": {
+									"type": "AzureSqlSink",
+									"preCopyScript": {
+										"value": "@concat('TRUNCATE TABLE ', item().StagingSchema, '.', item().StagingTable)",
+										"type": "Expression"
+									},
+									"writeBehavior": "insert",
+									"disableMetricsCollection": false
+								},
+								"enableStaging": false
+							},
+							"inputs": [
+								{
+									"referenceName": "DS_ADLS_DelimitedText",
+									"type": "DatasetReference",
+									"parameters": {
+										"fileSystemName": {
+											"value": "@item().FileSystemName",
+											"type": "Expression"
+										},
+										"folderPath": {
+											"value": "@item().FolderPath",
+											"type": "Expression"
+										},
+										"fileName": {
+											"value": "@item().FileName",
+											"type": "Expression"
+										}
+									}
+								}
+							],
+							"outputs": [
+								{
+									"referenceName": "DS_AzureSQL_Table",
+									"type": "DatasetReference",
+									"parameters": {
+										"schemaName": {
+											"value": "@item().StagingSchema",
+											"type": "Expression"
+										},
+										"tableName": {
+											"value": "@item().StagingTable",
+											"type": "Expression"
+										}
+									}
+								}
+							]
+						},
+						{
+							"name": "SP_Validate_Staging_Data",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "Copy_Blob_To_Staging",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.02:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": {
+									"value": "@item().ValidationProc",
+									"type": "Expression"
+								},
+								"storedProcedureParameters": {
+									"SourceSystem": {
+										"value": {
+											"value": "@item().SourceSystem",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SubjectArea": {
+										"value": {
+											"value": "@item().SubjectArea",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"PipelineRunId": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "AzureSQL_LinkedServer",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP_Load_Final_Table",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "SP_Validate_Staging_Data",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.12:00:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": {
+									"value": "@item().LoadProc",
+									"type": "Expression"
+								},
+								"storedProcedureParameters": {
+									"SourceSystem": {
+										"value": {
+											"value": "@item().SourceSystem",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SubjectArea": {
+										"value": {
+											"value": "@item().SubjectArea",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"PipelineRunId": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "AzureSQL_LinkedServer",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP_Log_Success",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "SP_Load_Final_Table",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.00:10:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "etl.usp_Log_Pipeline_Run",
+								"storedProcedureParameters": {
+									"PipelineRunId": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SourceSystem": {
+										"value": {
+											"value": "@item().SourceSystem",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SubjectArea": {
+										"value": {
+											"value": "@item().SubjectArea",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"Status": {
+										"value": "Success",
+										"type": "String"
+									},
+									"StartTime": {
+										"value": {
+											"value": "@variables('varRunStartTime')",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"ErrorMessage": {
+										"value": "",
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "AzureSQL_LinkedServer",
+								"type": "LinkedServiceReference"
+							}
+						},
+						{
+							"name": "SP_Log_Failure",
+							"type": "SqlServerStoredProcedure",
+							"dependsOn": [
+								{
+									"activity": "SP_Load_Final_Table",
+									"dependencyConditions": [
+										"Failed"
+									]
+								}
+							],
+							"policy": {
+								"timeout": "0.00:10:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"storedProcedureName": "etl.usp_Log_Pipeline_Run",
+								"storedProcedureParameters": {
+									"PipelineRunId": {
+										"value": {
+											"value": "@pipeline().RunId",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SourceSystem": {
+										"value": {
+											"value": "@item().SourceSystem",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"SubjectArea": {
+										"value": {
+											"value": "@item().SubjectArea",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"Status": {
+										"value": "Failed",
+										"type": "String"
+									},
+									"StartTime": {
+										"value": {
+											"value": "@variables('varRunStartTime')",
+											"type": "Expression"
+										},
+										"type": "String"
+									},
+									"ErrorMessage": {
+										"value": {
+											"value": "@activity('SP_Load_Final_Table').error.message",
+											"type": "Expression"
+										},
+										"type": "String"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "AzureSQL_LinkedServer",
+								"type": "LinkedServiceReference"
+							}
+						}
+					]
+				}
+			}
+		],
+		"variables": {
+			"varRunStartTime": {
+				"type": "String"
+			}
+		},
+		"folder": {
+			"name": "Project 1 - Data Migration using ADF"
+		},
+		"annotations": []
+	}
+}
