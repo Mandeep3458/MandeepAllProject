@@ -1,0 +1,15 @@
+{
+	"name": "azuredatafactory-mandeep",
+	"properties": {
+		"trustModeClaimForMi": {
+			"value": "Disabled",
+			"editable": true
+		}
+	},
+	"location": "centralindia",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "ce35985f-35c4-45b6-9111-7a90ee2cd207",
+		"tenantId": "5cce3572-83a7-4b21-b490-50fdc7fd857e"
+	}
+}
